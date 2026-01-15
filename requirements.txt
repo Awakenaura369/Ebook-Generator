@@ -1,0 +1,6 @@
+streamlit
+groq
+reportlab
+deep-translator
+requests
+markdown2
