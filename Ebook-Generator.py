@@ -5,12 +5,12 @@ from datetime import datetime
 import re
 
 st.set_page_config(
-    page_title="EbookMaster Ultra v2",
+    page_title="EbookMaster Ultra",
     page_icon="👑",
     layout="wide"
 )
 
-# CSS (يبقى كما هو لأنه ممتاز)
+# CSS (البنية والتصميم بقاو هما هما)
 st.markdown("""
 <style>
     .hero-section {
@@ -22,6 +22,7 @@ st.markdown("""
         margin-bottom: 40px;
         box-shadow: 0 10px 40px rgba(0,0,0,0.2);
     }
+    
     .cover-preview {
         background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
         color: white;
@@ -31,6 +32,7 @@ st.markdown("""
         margin: 20px 0;
         box-shadow: 0 15px 50px rgba(0,0,0,0.3);
     }
+    
     .success-banner {
         background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
         color: white;
@@ -69,6 +71,7 @@ class EbookMasterUltra:
                 },
                 timeout=90
             )
+            
             if response.status_code == 200:
                 return response.json()['choices'][0]['message']['content']
             return None
@@ -77,35 +80,18 @@ class EbookMasterUltra:
             return None
     
     def generate_outline(self, topic, title, num_chapters, audience, tone):
-        system_prompt = "You are a world-class book architect and strategist."
-        prompt = f"""Create a deep, non-generic book outline for:
+        # منع التكرار من البداية في الهيكل
+        system_prompt = "You are a professional book architect."
+        prompt = f"""Create a deep book outline for:
 Title: {title}
 Topic: {topic}
 Audience: {audience}
 Tone: {tone}
 Chapters: {num_chapters}
 
-Requirements:
-1. Each chapter summary must focus on a UNIQUE phase (No overlap).
-2. Ensure a logical progression from theory to advanced execution.
+Return JSON with "title", "subtitle", "tagline", "description", and "chapters" (each with "title", "summary").
+Ensure each chapter covers a unique stage of the process with ZERO overlap."""
 
-Return ONLY JSON:
-{{
-  "title": "{title}",
-  "subtitle": "A Specific & High-Value Subtitle",
-  "tagline": "One sentence magnetic hook",
-  "description": "Short compelling blurb",
-  "chapters": [
-    {{
-      "number": 1,
-      "title": "Clear Actionable Title",
-      "summary": "Deep technical summary of what will be taught",
-      "sections": [
-        {{ "title": "Section Name", "key_points": ["Specific point 1", "Specific point 2"] }}
-      ]
-    }}
-  ]
-}}"""
         result = self.call_ai(system_prompt, prompt, max_tokens=4000)
         if result:
             try:
@@ -114,156 +100,136 @@ Return ONLY JSON:
             except: return None
         return None
     
-    def generate_chapter(self, outline, chapter_num, tone, word_count, previous_titles):
+    def generate_chapter(self, outline, chapter_num, tone, word_count, previous_chapters_titles):
         chapter = outline['chapters'][chapter_num - 1]
         
-        # تحسين الـ System Prompt لمنع التكرار
-        system_prompt = f"""You are a bestselling technical author. 
-        CRITICAL RULES: 
-        1. NO REPETITION: Do not repeat concepts or intros from previous chapters: {previous_titles}.
-        2. NO FLUFF: Skip the "In this chapter" or "In today's world" intros. Dive straight into the facts.
-        3. FORMAT: Use H2 (##) and H3 (###). Use bold for emphasis. 
-        4. VALUE: Every chapter MUST have 1 'Step-by-Step' guide and 1 'Pro-Tip' box."""
+        # هنا تم تعديل المنطق لمنع الرموز الكثيرة والتكرار
+        system_prompt = f"""You are a professional author. 
+        RULES:
+        1. NO EXCESSIVE SYMBOLS: Use bolding (**) only for key terms, not entire sentences.
+        2. NO REPETITION: Do not repeat introductions or concepts already discussed in: {previous_chapters_titles}.
+        3. CLEAN FORMAT: Use ## for chapter titles and ### for sub-sections. No other special symbols.
+        4. START IMMEDIATELY: No "In this chapter" fluff. Dive into the content.
+        5. Provide real examples and a clean 'Pro-Tip' box at the end."""
 
-        prompt = f"""Write Chapter {chapter_num} of "{outline['title']}":
-Chapter Title: {chapter['title']}
-Context/Summary: {chapter['summary']}
-Target Word Count: {word_count}
-Tone: {tone}
-
-Requirements:
-- Start directly with the first sub-heading.
-- Provide deep, actionable technical details.
-- Include 3 real-world examples.
-- End with a brief 'Chapter Summary' checklist."""
+        prompt = f"""Write Chapter {chapter_num}: {chapter['title']}
+        Summary to cover: {chapter['summary']}
+        Target: {word_count} words.
+        Tone: {tone}."""
 
         return self.call_ai(system_prompt, prompt, max_tokens=5000)
-
+    
     def generate_introduction(self, outline, tone):
-        system_prompt = "You are an expert in persuasion and psychological hooks."
-        prompt = f"""Write a compelling 800-word introduction for "{outline['title']}".
-        Focus on the 'Why' and the 'Pain Points' of the reader. 
-        Explain exactly what they will achieve by the end. 
-        Tone: {tone}. Use Markdown."""
+        system_prompt = "You are an expert at writing compelling book introductions."
+        prompt = f"""Write a professional introduction for "{outline['title']}".
+        Focus on the problem and the solution.
+        Avoid too many bold symbols. Keep it clean and readable.
+        Tone: {tone}."""
         return self.call_ai(system_prompt, prompt, max_tokens=2500)
-
+    
     def generate_conclusion(self, outline, tone):
-        system_prompt = "You are a motivational coach and strategist."
-        prompt = f"""Write a powerful 600-word conclusion for "{outline['title']}".
-        Summarize the transformation. Provide a clear 'Next Step' call to action.
-        Tone: {tone}. Inspiring and final."""
+        system_prompt = "You are skilled at writing powerful book conclusions."
+        prompt = f"""Write a conclusion for "{outline['title']}".
+        Summarize the transformation and provide a clear call to action.
+        Tone: {tone}. Clean formatting only."""
         return self.call_ai(system_prompt, prompt, max_tokens=2000)
 
 def create_premium_html(outline, content, author):
-    # (دالة الـ HTML تبقى كما هي)
-    html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>{outline['title']}</title>
-    <style>body{{font-family: 'Segoe UI', serif; line-height: 1.8; max-width: 850px; margin: 0 auto; padding: 50px; color: #2d3436;}}
-    .cover{{background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 120px 40px; text-align: center; border-radius: 20px; margin-bottom: 50px;}}
-    h1{{font-size: 3.5rem; margin-bottom: 10px;}} h2{{font-weight: 300; opacity: 0.9;}}
-    h2.ch-title{{color: #6c5ce7; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 50px;}}
-    .pro-tip{{background: #f1f2f6; border-left: 5px solid #6c5ce7; padding: 20px; margin: 20px 0; font-style: italic;}}
+    # نفس دالة HTML مع تحسين بسيط في الخطوط للقراءة
+    html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <style>
+        body {{ font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 40px; color: #333; }}
+        .cover {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 80px 40px; text-align: center; border-radius: 15px; }}
+        h1 {{ font-size: 2.5rem; }}
+        h2 {{ color: #764ba2; margin-top: 30px; border-bottom: 1px solid #eee; padding-bottom: 10px; }}
+        h3 {{ color: #444; }}
+        .pro-tip {{ background: #f9f9f9; border-left: 5px solid #764ba2; padding: 15px; margin: 20px 0; }}
     </style></head><body>
-    <div class="cover"><h1>{outline['title']}</h1><h2>{outline['subtitle']}</h2><p>By {author}</p></div>
-    <div>{content}</div>
-    <footer style="margin-top: 100px; border-top: 1px solid #eee; padding-top: 20px; text-align: center;">© {datetime.now().year} {author}</footer>
+    <div class="cover"><h1>{outline['title']}</h1><p>By {author}</p></div>
+    <div style="margin-top: 50px;">{content}</div>
+    <footer style="margin-top: 50px; text-align: center; font-size: 0.8rem;">© {datetime.now().year} {author}</footer>
     </body></html>"""
     return html
 
 def main():
-    st.markdown("""<div class="hero-section"><h1>👑 EbookMaster Ultra v2</h1><p>Professional Content, Zero Fluff</p></div>""", unsafe_allow_html=True)
+    st.markdown("""<div class="hero-section"><h1>👑 EbookMaster Ultra</h1><p>High-Quality, Professional Ebooks</p></div>""", unsafe_allow_html=True)
     
     with st.sidebar:
         st.header("⚙️ Settings")
         groq_key = st.text_input("🤖 Groq API Key", type="password")
-        author = st.text_input("✍️ Author", "Expert Author")
-        audience = st.selectbox("👥 Audience", ["Beginners", "Everyone", "Professionals", "Advanced Users"])
-        tone = st.selectbox("🎭 Tone", ["Professional", "Conversational", "Aggressive/Bold", "Academic"])
+        author = st.text_input("✍️ Author", "Moh del")
+        audience = st.selectbox("👥 Audience", ["Beginners", "Everyone", "Professionals"])
+        tone = st.selectbox("🎭 Tone", ["Professional", "Conversational", "Motivational"])
         num_chapters = st.slider("📑 Chapters", 3, 15, 6)
         word_count = st.slider("📏 Words/Chapter", 800, 3000, 1200)
 
     tab1, tab2, tab3 = st.tabs(["📝 Create", "📖 Preview", "💾 Export"])
     
     with tab1:
-        topic = st.text_area("What is your book about?", height=100)
-        
-        if st.button("🚀 Generate High-Value Book", type="primary", use_container_width=True):
+        topic = st.text_area("What's your book about?", height=100)
+        if st.button("🚀 Generate Book", type="primary", use_container_width=True):
             if not groq_key or not topic:
                 st.error("❌ Fill all fields!")
                 return
             
             master = EbookMasterUltra(groq_key)
-            status = st.empty()
             progress = st.progress(0)
+            status = st.empty()
             
             # Outline
-            status.info("📋 Architecting the outline (Sequential Logic)...")
+            status.info("📋 Planning the structure...")
             outline = master.generate_outline(topic, topic, num_chapters, audience, tone)
-            
-            if not outline:
-                st.error("❌ Error generating outline. Check Key.")
-                return
-            
             st.session_state.outline = outline
             progress.progress(10)
             
-            # Intro
-            status.info("✍️ Crafting the Introduction...")
+            # Introduction
+            status.info("✍️ Writing introduction...")
             intro = master.generate_introduction(outline, tone)
             st.session_state.introduction = intro
             progress.progress(20)
             
-            # Sequential Chapter Generation
+            # Chapters
             chapters = []
-            previous_titles = []
+            prev_titles = []
             for i in range(1, num_chapters + 1):
-                status.info(f"✍️ Writing Chapter {i}: {outline['chapters'][i-1]['title']}...")
-                
-                # نمرر عناوين الفصول السابقة لمنع التكرار
-                content = master.generate_chapter(outline, i, tone, word_count, previous_titles)
-                if content:
-                    chapters.append(content)
-                    previous_titles.append(outline['chapters'][i-1]['title'])
-                    st.success(f"✅ Finished Chapter {i}")
-                
-                prog_val = 20 + int((i / num_chapters) * 70)
-                progress.progress(prog_val)
+                status.info(f"✍️ Writing Chapter {i}/{num_chapters}...")
+                chapter_content = master.generate_chapter(outline, i, tone, word_count, prev_titles)
+                if chapter_content:
+                    chapters.append(chapter_content)
+                    prev_titles.append(outline['chapters'][i-1]['title'])
+                progress.progress(20 + int((i/num_chapters)*70))
             
             st.session_state.chapters = chapters
             
             # Conclusion
-            status.info("🎯 Finalizing with Conclusion...")
-            conclusion = master.generate_conclusion(outline, tone)
-            st.session_state.conclusion = conclusion
+            status.info("🎯 Finalizing...")
+            st.session_state.conclusion = master.generate_conclusion(outline, tone)
             progress.progress(100)
             status.empty()
-            
-            st.markdown('<div class="success-banner">🎉 Your Premium Ebook is Ready!</div>', unsafe_allow_html=True)
+            st.markdown('<div class="success-banner">🎉 Book Complete!</div>', unsafe_allow_html=True)
 
-    # (باقي كود الـ Preview و Export يبقى كما هو في نسختك الأصلية)
     with tab2:
         if 'outline' in st.session_state:
-            outline = st.session_state.outline
-            st.markdown(f'<div class="cover-preview"><h1>{outline["title"]}</h1><p>By {author}</p></div>', unsafe_allow_html=True)
+            st.markdown(f"## {st.session_state.outline['title']}")
             if 'introduction' in st.session_state:
-                with st.expander("Show Introduction"): st.markdown(st.session_state.introduction)
-            for i, ch in enumerate(st.session_state.get('chapters', []), 1):
-                with st.expander(f"Chapter {i}: {outline['chapters'][i-1]['title']}"): st.markdown(ch)
+                with st.expander("Introduction"): st.markdown(st.session_state.introduction)
+            for i, ch in enumerate(st.session_state.chapters, 1):
+                with st.expander(f"Chapter {i}: {st.session_state.outline['chapters'][i-1]['title']}"):
+                    st.markdown(ch)
             if 'conclusion' in st.session_state:
-                with st.expander("Show Conclusion"): st.markdown(st.session_state.conclusion)
-        else: st.info("Start by generating a book in the 'Create' tab.")
+                with st.expander("Conclusion"): st.markdown(st.session_state.conclusion)
+        else: st.info("Generate a book first.")
 
     with tab3:
         if 'outline' in st.session_state:
-            full_md = f"# {st.session_state.outline['title']}\n\n"
-            full_md += f"## Introduction\n\n{st.session_state.introduction}\n\n"
-            for ch in st.session_state.chapters: full_md += f"{ch}\n\n"
-            full_md += f"## Conclusion\n\n{st.session_state.conclusion}"
+            full_content = f"# {st.session_state.outline['title']}\n\n## Introduction\n{st.session_state.introduction}\n\n"
+            for ch in st.session_state.chapters: full_content += f"{ch}\n\n"
+            full_content += f"## Conclusion\n{st.session_state.conclusion}"
             
-            html = create_premium_html(st.session_state.outline, full_md.replace('\n', '<br>'), author)
-            
+            html = create_premium_html(st.session_state.outline, full_content.replace('\n', '<br>'), author)
             st.download_button("📄 Download HTML", html, "ebook.html", "text/html", use_container_width=True)
-            st.download_button("📝 Download Markdown", full_md, "ebook.md", use_container_width=True)
-        else: st.info("Generate content first.")
+            st.download_button("📝 Download Markdown", full_content, "ebook.md", use_container_width=True)
+        else: st.info("Generate a book first.")
 
 if __name__ == "__main__":
     main()
