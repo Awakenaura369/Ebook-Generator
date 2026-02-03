@@ -1,187 +1,138 @@
-import streamlit as st
-import requests
-import json
-from datetime import datetime
-import re
-import sqlite3
-import pickle
-import time
-import hashlib
-from functools import lru_cache
 import os
-import pandas as pd
-import plotly.graph_objects as go
+import json
+import streamlit as st
+from groq import Groq
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.units import inch
+from reportlab.lib import colors
+from deep_translator import GoogleTranslator
+from datetime import datetime
 
-# إعدادات الصفحة الأصلية
-st.set_page_config(
-    page_title="📚 EbookMaster Ultra Pro",
-    page_icon="👑",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# ================== 1. حماية الـ API KEY ==================
+if "GROQ_API_KEY" in st.secrets:
+    api_key = st.secrets["GROQ_API_KEY"]
+else:
+    api_key = st.sidebar.text_input("Enter Groq API Key", type="password")
 
-# ========== ENHANCED AI MODELS (الكلاس الأصلي القوي) ==========
-class AIPowerhouse:
-    def __init__(self, groq_api_key):
-        self.groq_api_key = groq_api_key
-        self.groq_url = "https://api.groq.com/openai/v1/chat/completions"
-        
-        self.models = {
-            "llama3_70b": "llama-3.3-70b-versatile",
-            "llama3_8b": "llama-3.1-8b-instant",
-            "mixtral": "mixtral-8x7b-32768",
-            "gemma2": "gemma2-9b-it"
-        }
-        
-        self.writing_styles = {
-            "bestseller": "Write like a New York Times bestselling author",
-            "professional": "Write like an industry expert with 20+ years experience",
-            "conversational": "Write like a friend giving advice over coffee",
-            "academic": "Write with academic rigor and citations",
-            "persuasive": "Write to convince and convert readers",
-            "storytelling": "Write with compelling narrative and characters"
-        }
-        
-        self.genres = {
-            "self_help": "Self-Help & Personal Development",
-            "business": "Business & Entrepreneurship",
-            "health": "Health & Wellness",
-            "finance": "Finance & Investing",
-            "technology": "Technology & AI",
-            "fiction": "Fiction & Storytelling",
-            "education": "Educational & How-To"
-        }
+client = Groq(api_key=api_key) if api_key else None
 
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def call_ai(_self, system_prompt, user_prompt, model_name, max_tokens=6000, temperature=0.75):
-        try:
-            response = requests.post(
-                _self.groq_url,
-                headers={
-                    "Authorization": f"Bearer {_self.groq_api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": model_name,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                    "top_p": 0.9
-                },
-                timeout=120
-            )
-            if response.status_code == 200:
-                return response.json()['choices'][0]['message']['content']
-            return f"Error: {response.status_code}"
-        except Exception as e:
-            return f"Error: {str(e)}"
-
-    def generate_outline(self, topic, chapters, genre, style, target_audience):
-        system_prompt = "You are a professional book architect. Return ONLY valid JSON."
-        user_prompt = f"Create a detailed book outline for '{topic}'. Total {chapters} chapters. Style: {style}. Return JSON with 'title', 'subtitle', and a list named 'chapters' containing 'number', 'title', 'hook', and 'key_points'."
-        
-        result = self.call_ai(system_prompt, user_prompt, self.models["llama3_70b"], 4000, 0.7)
-        try:
-            # تنظيف الـ JSON من أي نصوص زائدة
-            clean_json = re.search(r'\{.*\}', result, re.DOTALL).group()
-            return json.loads(clean_json)
-        except:
-            return self.create_fallback_outline(topic, chapters, genre)
-
-    def create_fallback_outline(self, topic, chapters, genre):
-        return {
-            "title": f"The Mastery of {topic}",
-            "subtitle": "A Comprehensive Guide",
-            "chapters": [{"number": i+1, "title": f"The Foundations of {topic} Part {i+1}", "hook": "Essential insights.", "key_points": ["Point A", "Point B"]} for i in range(chapters)]
-        }
-
-    def generate_chapter(self, book_info, chapter_info, word_count, style):
-        system_prompt = f"You are a professional {style} writer. Write in English."
-        user_prompt = f"Write a full chapter for '{book_info['title']}'. Chapter {chapter_info['number']}: {chapter_info['title']}. Hook: {chapter_info['hook']}. Points: {', '.join(chapter_info['key_points'])}. Length: {word_count} words."
-        return self.call_ai(system_prompt, user_prompt, self.models["llama3_70b"], 8000, 0.75)
-
-# ========== DATABASE (نفس الكود الأصلي) ==========
-class BookDatabasePro:
+# ================== 2. GENERATOR CLASS ==================
+class GlobalEbookGenerator:
     def __init__(self):
-        os.makedirs("ebook_data", exist_ok=True)
-        self.conn = sqlite3.connect('ebook_data/ebooks_pro.db', check_same_thread=False)
-        self.create_tables()
-    def create_tables(self):
-        self.conn.execute('CREATE TABLE IF NOT EXISTS books (id INTEGER PRIMARY KEY, title TEXT, content BLOB, user_hash TEXT, created_at TIMESTAMP)')
-        self.conn.commit()
-    def save_book(self, title, content, user_hash):
-        self.conn.execute('INSERT INTO books (title, content, user_hash, created_at) VALUES (?, ?, ?, ?)', (title, pickle.dumps(content), user_hash, datetime.now()))
-        self.conn.commit()
+        self.current_model = "llama-3.3-70b-versatile" 
 
-# ========== MAIN APP ==========
+    def _extract_json(self, text):
+        try:
+            clean_text = text.replace("```json", "").replace("```", "").strip()
+            start_idx = clean_text.find('{')
+            end_idx = clean_text.rfind('}') + 1
+            if start_idx != -1:
+                return json.loads(clean_text[start_idx:end_idx])
+        except:
+            pass
+        return None
+
+    def generate_ebook(self, topic, niche, pages, language='en'):
+        if not client:
+            st.warning("Please provide a valid Groq API Key.")
+            return None
+
+        prompt = f"""
+        Generate a professional Ebook JSON for: {topic} in the {niche} niche.
+        STRUCTURE:
+        {{
+            "title": "Title",
+            "subtitle": "Subtitle",
+            "description": "Sales description",
+            "chapters": [ {{"title": "Ch1", "content": "Content..."}} ],
+            "marketing": {{
+                "email_templates": [],
+                "social_media": "",
+                "hotmart_sales_page": "High converting HTML/Text description for Hotmart"
+            }}
+        }}
+        """
+        
+        try:
+            response = client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model=self.current_model,
+                temperature=0.7,
+                max_tokens=4000 
+            )
+            content = self._extract_json(response.choices[0].message.content)
+            
+            if not content: return None
+
+            if language != 'en':
+                translator = GoogleTranslator(source='en', target=language)
+                content['title'] = translator.translate(content['title'])
+                content['description'] = translator.translate(content['description'])
+                if "hotmart_sales_page" in content['marketing']:
+                    content['marketing']['hotmart_sales_page'] = translator.translate(content['marketing']['hotmart_sales_page'])
+                for ch in content['chapters']:
+                    ch['title'] = translator.translate(ch['title'])
+                    ch['content'] = translator.translate(ch['content'])
+
+            pdf_file = self._create_pdf(content)
+            return {"pdf": pdf_file, "data": content}
+        except Exception as e:
+            st.error(f"Error: {e}")
+            return None
+
+    def _create_pdf(self, content):
+        filename = f"ebook_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        doc = SimpleDocTemplate(filename, pagesize=letter)
+        styles = getSampleStyleSheet()
+        story = []
+        title_style = ParagraphStyle('TStyle', fontSize=26, textColor=colors.HexColor('#2C3E50'), alignment=1, spaceAfter=20)
+        header_style = ParagraphStyle('HStyle', fontSize=18, textColor=colors.HexColor('#3498DB'), spaceBefore=15, spaceAfter=10)
+        story.append(Paragraph(content['title'], title_style))
+        story.append(Paragraph(content.get('subtitle', ''), styles['Heading2']))
+        story.append(Spacer(1, 30))
+        for i, ch in enumerate(content['chapters'], 1):
+            story.append(Paragraph(f"Chapter {i}: {ch['title']}", header_style))
+            story.append(Paragraph(ch['content'], styles['Normal']))
+            story.append(Spacer(1, 15))
+        doc.build(story)
+        return filename
+
+# ================== 3. STREAMLIT UI ==================
 def main():
-    # الـ CSS الجميل الخاص بك
-    st.markdown("""<style>.main-header { font-size: 3rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }</style>""", unsafe_allow_html=True)
-    st.markdown('<h1 class="main-header">📚 EbookMaster Ultra Pro</h1>', unsafe_allow_html=True)
-
+    st.set_page_config(page_title="Ebook Factory Pro", layout="wide")
+    st.title("📘 AI Ebook Factory Pro")
+    
     with st.sidebar:
-        st.header("⚙️ SETTINGS")
-        groq_key = st.text_input("Groq API Key", type="password")
-        author_name = st.text_input("Author Name", "John Smith")
-        genre = st.selectbox("Genre", ["Business", "Self-Help", "Tech"])
-        style = st.selectbox("Writing Style", ["bestseller", "professional", "conversational"])
-        num_chapters = st.slider("Chapters", 5, 15, 8)
-        words_per_ch = st.slider("Words/Chapter", 1000, 4000, 2000)
+        st.header("Settings")
+        topic = st.text_input("Topic")
+        niche = st.text_input("Niche")
+        lang = st.selectbox("Language", ["English", "Arabic", "French"])
+        pages = st.slider("Length", 5, 50, 10)
+        btn = st.button("🚀 Generate Bestseller", type="primary")
 
-    tab1, tab2, tab3 = st.tabs(["🚀 CREATE BOOK", "📖 PREVIEW", "📊 ANALYTICS"])
-
-    with tab1:
-        topic = st.text_area("BOOK TOPIC", placeholder="e.g. TikTok for Business")
-        if st.button("✨ GENERATE COMPLETE BOOK", type="primary", use_container_width=True):
-            if not groq_key: st.error("Please add API Key"); st.stop()
+    if btn and topic:
+        with st.spinner("🤖 Writing your book..."):
+            gen = GlobalEbookGenerator()
+            lang_code = {"English":"en", "Arabic":"ar", "French":"fr"}[lang]
+            result = gen.generate_ebook(topic, niche, pages, lang_code)
             
-            ai = AIPowerhouse(groq_key)
-            db = BookDatabasePro()
-            
-            # --- PROGRESS ---
-            progress_bar = st.progress(0)
-            status = st.empty()
-
-            # 1. Outline
-            status.info("📋 Planning Book Structure...")
-            outline = ai.generate_outline(topic, num_chapters, genre, style, "Global Audience")
-            st.session_state.outline = outline
-            progress_bar.progress(15)
-
-            # التأكد من عدم حدوث KeyError
-            if 'chapters' not in outline:
-                st.error("Outline format error. Retrying with fallback...")
-                outline = ai.create_fallback_outline(topic, num_chapters, genre)
-
-            # 2. Chapters Generation (إصلاح الـ Loop)
-            chapters_content = []
-            for i, ch in enumerate(outline['chapters']):
-                status.warning(f"✍️ Writing Chapter {i+1}/{len(outline['chapters'])}: {ch['title']}...")
-                content = ai.generate_chapter(outline, ch, words_per_ch, style)
-                chapters_content.append(f"## {ch['title']}\n\n{content}")
+            if result:
+                st.success("✅ Done!")
+                with open(result['pdf'], "rb") as f:
+                    st.download_button("📥 Download PDF", f, file_name=f"{topic}.pdf")
                 
-                # تحديث البروجرس
-                progress = 15 + int(((i + 1) / len(outline['chapters'])) * 75)
-                progress_bar.progress(progress)
-
-            # 3. Finalizing
-            full_book = f"# {outline['title']}\n\nBy {author_name}\n\n" + "\n\n".join(chapters_content)
-            st.session_state.full_content = full_book
-            db.save_book(outline['title'], full_book, "user_001")
-            
-            progress_bar.progress(100)
-            status.success("✅ Ebook Generated Successfully!")
-            st.balloons()
-
-    with tab2:
-        if 'full_content' in st.session_state:
-            st.markdown(st.session_state.full_content)
-            st.download_button("📥 Download TXT", st.session_state.full_content, "my_ebook.txt")
-        else:
-            st.info("Your book preview will appear here.")
+                st.divider()
+                t1, t2, t3 = st.tabs(["📊 Book Preview", "📈 Marketing Kit", "💰 Hotmart Sales Page"])
+                with t1:
+                    st.header(result['data']['title'])
+                    st.write(result['data']['description'])
+                with t2:
+                    st.json(result['data']['marketing'])
+                with t3:
+                    st.subheader("Copy this to Hotmart Description:")
+                    st.code(result['data']['marketing'].get('hotmart_sales_page', 'Generating...'), language='html')
 
 if __name__ == "__main__":
     main()
